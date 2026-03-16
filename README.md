@@ -1,138 +1,113 @@
-# Shape Detection Challenge
+# Shape Detector
 
-## Overview
+A browser-based geometric shape detection engine built in TypeScript — no external CV libraries, no ML models. Pure computer vision from scratch using only browser-native APIs and basic math.
 
-This challenge tests your ability to implement shape detection algorithms that can identify and classify the  geometric shapes in images:
+## Demo
 
-## Setup Instructions
+Upload any image (or use the built-in test set) and the detector will identify every geometric shape, draw bounding boxes, and report confidence scores in real time.
 
-### Prerequisites
+Detects: **circle · triangle · rectangle · pentagon · star**
 
-- Node.js (version 16 or higher)
-- npm or yarn package manager
+---
 
-### Installation
+## How It Works
+
+The `detectShapes()` pipeline runs four stages on every image:
+
+### 1. Binarisation
+Each pixel is converted to greyscale using the standard luminance formula (`0.299R + 0.587G + 0.114B`) and thresholded at 128. Pixels below the threshold are "dark" and belong to a shape; everything else is background.
+
+### 2. Connected-Component Labelling
+A BFS flood-fill with 8-connectivity groups touching dark pixels into isolated blobs. Each blob is one shape candidate. Components smaller than 150 pixels are discarded as noise.
+
+### 3. Contour Extraction
+For each component, a scanline pass collects the topmost/bottommost pixel per column and leftmost/rightmost pixel per row. The resulting boundary points are sorted by polar angle around the centroid to form an ordered polygon.
+
+### 4. Feature Extraction & Classification
+Four normalised features are computed per shape:
+
+| Feature | Description | Key signal for |
+|---|---|---|
+| `circularity` | `4π·area / perimeter²` — 1.0 for a perfect circle | circle vs everything |
+| `bbFillRatio` | `fillPixels / bboxArea` — how much of the bounding box is filled | rect (≈1.0), triangle (≈0.50), rotated rect (≈0.62) |
+| `solidityRatio` | `fillPixels / convexHullArea` — measures concavity | star (≈0.50) vs all convex shapes (≈1.0) |
+| `aspectRatio` | `bboxHeight / bboxWidth` | guards circle (must be ~square) |
+
+A six-rule cascade maps these features to a shape class, ordered from most- to least-unambiguous signal:
+
+```
+1. Star        → solidityRatio < 0.72   (only shape with deep concavities)
+2. Circle      → circularity > 0.82  +  bbFillRatio ≈ π/4
+3. Rectangle   → bbFillRatio > 0.88     (fills bbox almost completely)
+4. Triangle    → bbFillRatio < 0.60     (lowest fill of all convex shapes)
+5. Rot. rect   → bbFillRatio 0.55–0.88  + very high solidity
+6. Pentagon    → moderate circularity   + moderate bbFillRatio
+```
+
+---
+
+## Getting Started
 
 ```bash
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
 ```
 
-The application will be available at `http://localhost:5173`
+Open `http://localhost:5173` in your browser.
 
-### Project Structure
+### Using the Interface
+- **Click** any test image to run detection on it immediately
+- **Right-click** test images to select/deselect them for batch evaluation
+- **Select All / Deselect All** to manage the batch selection
+- **Run Selected Evaluation** to score your selection against ground truth
+- **Upload Image** (first tile) to test your own images
+
+---
+
+## Project Structure
 
 ```
 shape-detector/
 ├── src/
-│   ├── main.ts          # Main application code (implement here)
-│   └── style.css        # Basic styling
-├── test-images/         # Test images directory
-├── expected_results.json # Expected detection results
-├── index.html          # Application UI
-└── README.md           # This file
+│   ├── main.ts               # Shape detection algorithm + app bootstrap
+│   ├── evaluation.ts         # Scoring logic (F1, IoU, center accuracy)
+│   ├── evaluation-manager.ts # Wires evaluation UI to scoring logic
+│   ├── evaluation-utils.ts   # IoU, distance, and metric helpers
+│   ├── ui-utils.ts           # Selection manager + modal manager
+│   ├── test-images-data.ts   # Embedded test image data URLs
+│   └── style.css             # UI styles
+├── public/
+│   └── ground_truth.json     # Expected shapes per test image
+└── index.html
 ```
 
-## Challenge Requirements
+---
 
-### Primary Task
+## Evaluation Metrics
 
-Implement the `detectShapes()` method in the `ShapeDetector` class located in `src/main.ts`. This method should:
+Each test image is scored across five dimensions:
 
-1. Analyze the provided `ImageData` object
-2. Detect all geometric shapes present in the image
-3. Classify each shape into one of the five required categories
-4. Return detection results with specified format
+| Metric | Weight | Target |
+|---|---|---|
+| Shape Detection Accuracy (F1) | 40% | F1 ≥ 0.9 |
+| Localisation (IoU) | 25% | IoU ≥ 0.8 |
+| Center Point Accuracy | 15% | ≤ 5px error |
+| Area Calculation | 10% | ≥ 90% accuracy |
+| Processing Time | 10% | ≤ 500ms |
 
-### Implementation Location
+---
 
-```typescript
-// File: src/main.ts
-async detectShapes(imageData: ImageData): Promise<DetectionResult> {
-  // TODO: Implement your shape detection algorithm here
-  // This is where you write your code
-}
-```
-
-
-## Test Images
-
-The `test-images/` directory contains 10 test images with varying complexity:
-
-1. **Simple shapes** - Clean, isolated geometric shapes
-2. **Mixed scenes** - Multiple shapes in single image
-3. **Complex scenarios** - Overlapping shapes, noise, rotated shapes
-4. **Edge cases** - Very small shapes, partial occlusion
-5. **Negative cases** - Images with no detectable shapes
-
-See `expected_results.json` for detailed expected outcomes for each test image.
-
-## Evaluation Criteria
-
-Your implementation will be assessed on:
-
-### 1. Shape Detection Accuracy (40%)
-
-- Correctly identifying all shapes present in test images
-- Minimizing false positives (detecting shapes that aren't there)
-- Handling various shape sizes, orientations, and positions
-
-### 2. Classification Accuracy (30%)
-
-- Correctly classifying detected shapes into the right categories
-- Distinguishing between similar shapes (e.g., square vs. rectangle)
-- Handling edge cases and ambiguous shapes
-
-### 3. Precision Metrics (20%)
-
-- **Bounding Box Accuracy**: IoU > 0.7 with expected bounding boxes
-- **Center Point Accuracy**: < 10 pixels distance from expected centers
-- **Area Calculation**: < 15% error from expected area values
-- **Confidence Calibration**: Confidence scores should reflect actual accuracy
-
-### 4. Code Quality & Performance (10%)
-
-- Clean, readable, well-documented code
-- Efficient algorithms (< 2000ms processing time per image)
-- Proper error handling
-                |
-
-## Implementation Guidelines
-
-### Allowed Approaches
-
-- Computer vision algorithms (edge detection, contour analysis)
-- Mathematical shape analysis (geometric properties, ratios)
-- Pattern recognition techniques
-- Image processing operations
-- Any algorithm you can implement from scratch
-
-### Constraints
+## Constraints
 
 - No external computer vision libraries (OpenCV, etc.)
-- Use only browser-native APIs and basic math operations
 - No pre-trained machine learning models
-- Work with the provided `ImageData` object format
+- Browser-native APIs and basic math only
+- Works directly with the `ImageData` object format from the Canvas API
 
+---
 
-## Testing Your Solution
+## Tech Stack
 
-1. Use the web interface to upload and test images
-2. Compare your results with `expected_results.json`
-3. Test with the provided test images
-4. Verify detection accuracy and confidence scores
-5. Check processing time performance
-
-## Submission Guidelines
-
-Your final submission should include:
-
-- Completed implementation in `src/main.ts`
-- Any additional helper functions or classes you created
-- Brief documentation of your approach (comments in code)
-- Test results or performance notes (optional)
-
-
+- **TypeScript** — typed throughout
+- **Vite** — dev server and bundler
+- **Canvas API** — sole image processing primitive
